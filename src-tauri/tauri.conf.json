@@ -3,11 +3,11 @@
   "build": {
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
-    "devPath": "http://localhost",
-    "distDir": "https://scarlet.australianarmedforces.org/electron/intro"
+    "devPath": "http://localhost:3000",
+    "distDir": "../dist"
   },
   "package": {
-    "productName": "Scarlet Downloader",
+    "productName": "scarlet-ui",
     "version": "0.1.0"
   },
   "tauri": {
@@ -29,9 +29,8 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.aaf.scarlet",
-      "longDescription": "Long Description",
-
+      "identifier": "com.tauri.dev",
+      "longDescription": "",
       "macOS": {
         "entitlements": null,
         "exceptionDomain": "",
@@ -40,7 +39,7 @@
         "signingIdentity": null
       },
       "resources": [],
-      "shortDescription": "Short Description",
+      "shortDescription": "",
       "targets": "all",
       "windows": {
         "certificateThumbprint": null,
@@ -60,9 +59,9 @@
     },
     "windows": [
       {
-        "decorations": false,
         "fullscreen": false,
         "height": 600,
+        "decorations": false,
         "resizable": true,
         "title": "Scarlet",
         "width": 800
