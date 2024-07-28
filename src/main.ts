@@ -1,51 +1,63 @@
-import {BrowserWindow, ipcMain, shell, dialog} from 'electron';
+import {BrowserWindow, ipcMain, shell, dialog, App} from 'electron';
 import * as path from "path";
-import {AppUpdater, autoUpdater} from "electron-updater";
-const {hello} = require('./agent.node')
+import {autoUpdater} from "electron-updater";
+import {fetchAndConvertXML, getKeywordArguments} from './utils';
+import {FileDownload} from './types';
 
+const {
+    ping,
+    get_progress,
+    start_download,
+    stop_download
+}: {
+    ping: () => void,
+    get_progress: () => Promise<any>,
+    start_download: (destination_path: string, files: Array<FileDownload>) => Promise<any>,
+    stop_download: () => void
+} = require('./agent.node');
 
 export default class Main {
     static mainWindow: Electron.BrowserWindow;
     static application: Electron.App;
     static browserWindow: typeof BrowserWindow;
 
-    private static isDev = (): boolean => process.argv[2] === '--dev'
-    private static scarlet_api_url = () => Main.isDev() ? 'http://localhost/' : 'https://london.australianarmedforces.org/';
-    private static protocol = () => Main.isDev() ? 'scarlet-dev' : 'scarlet';
+    private static isDev = (): boolean => getKeywordArguments()['dev'] as boolean;
+    private static scarlet_api_url = 'https://staging.scarlet.australianarmedforces.org/';
+    private static protocol = 'scarlet';
 
-
-    static main(app: Electron.App, browserWindow: typeof BrowserWindow) {
-        console.log(hello())
-        if (!app.requestSingleInstanceLock()) {
-            app.quit()
+    /**
+     * Main entry point of the application
+     * @param app Electron.App instance
+     * @param browserWindow BrowserWindow constructor
+     */
+    static main(app: App, browserWindow: typeof BrowserWindow): void {
+        /**
+         * Set the Scarlet API URL, based on Args or based on dev flag
+         */
+        if(getKeywordArguments()['api-url'] as string) {
+            Main.scarlet_api_url = getKeywordArguments()['api-url'] as string;
         }
-        Main.browserWindow = browserWindow
+
+        if (!app.requestSingleInstanceLock()) {
+            app.quit();
+        }
+        Main.browserWindow = browserWindow;
         Main.application = app;
 
-        /**
-         * Bits
-         */
-        Main.registerUrlHandler()
-        Main.registerIPCEvents()
-        // Main.registerAutoUpdater()
+        Main.registerUrlHandler();
+        Main.registerIPCEvents();
+        Main.registerAutoUpdater();
 
-        /**
-         * Application Event Listeners
-         */
         Main.application.on('window-all-closed', Main.onWindowAllClosed);
         Main.application.on('second-instance', Main.onSecondInstance);
-        Main.application.on('open-url', Main.onOpenUrl)
+        Main.application.on('open-url', Main.onOpenUrl);
         Main.application.on('ready', Main.onReady);
     }
 
     /**
-     * When the application is ready
-     *
-     * Loads the main Window, injects preload.js and renders the web page
-     *
-     * @private
+     * Initializes the main window when the application is ready
      */
-    private static onReady() {
+    private static onReady(): void {
         Main.mainWindow = new Main.browserWindow({
             width: 1000,
             height: 600,
@@ -55,90 +67,88 @@ export default class Main {
             show: false,
             frame: false,
             transparent: true,
-            // frame: false
             webPreferences: {
-                sandbox: true,
-                preload: path.join(__dirname, Main.isDev() ? './client/preload.js' : '../client/preload.js')
+                sandbox: false,
+                preload: path.join(__dirname, 'preload.js')
             }
-        })
+        });
 
-        /**
-         * Load the Scarlet Website
-         */
-        Main.mainWindow.loadURL(Main.scarlet_api_url() + 'electron/intro/', {extraHeaders: 'pragma: no-cache\n'});
+        Main.mainWindow.loadURL(Main.scarlet_api_url + 'electron/intro/', {extraHeaders: 'pragma: no-cache\n'});
         Main.mainWindow.on('closed', Main.onClose);
-        Main.mainWindow.once('ready-to-show', Main.onReadyToShow)
+        Main.mainWindow.once('ready-to-show', Main.onReadyToShow);
     }
 
     /**
-     * Actions something when all the windows are closed
-     *
-     * @private
+     * Quits the application when all windows are closed
      */
-    private static onWindowAllClosed() {
+    private static onWindowAllClosed(): void {
         Main.application.quit();
     }
 
     /**
-     * Opens a URL on the Window
-     *
-     * @private
+     * Handles the closing of the main window
      */
-    private static onClose() {
+    private static onClose(): void {
         Main.mainWindow = null;
     }
 
     /**
-     * Opens a URL on the Window
-     *
-     * @private
+     * Shows the main window when it's ready
      */
-    private static onReadyToShow() {
-        Main.mainWindow.show()
-        Main.isDev() ? Main.mainWindow.webContents.openDevTools() : ''
+    private static onReadyToShow(): void {
+        Main.mainWindow.show();
+        Main.isDev() ? Main.mainWindow.webContents.openDevTools() : null;
     }
 
     /**
-     * Logs into the Application, requires token
-     *
-     * @private
-     * @param url
+     * Logs into the application using a token
+     * @param url The URL containing the token
      */
-    private static login(url: String) {
-        let token = url.replace(Main.protocol() + '://', '')
+    private static login(url: string): Promise<void> {
+
+        console.log('Logging in with URL:', url);
+
+        // If the query string specifies a new scarlet_api_url, update it and go to that instead.
+        const parsedURL = new URL(url);
+
+
+        if (parsedURL.searchParams.has('scarlet_api_url')) {
+            Main.scarlet_api_url = decodeURIComponent(parsedURL.searchParams.get('scarlet_api_url'));
+        }
+
+        // let token = url.replace(Main.protocol + '://', '');
+        const token = parsedURL.searchParams.get('token');
+
+        console.log(token)
 
         return Main.mainWindow.loadURL(
-            Main.scarlet_api_url() + 'electron/steam/verify?token=' + token,
+            Main.scarlet_api_url + 'electron/steam/verify?token=' + token,
             {extraHeaders: 'pragma: no-cache\n'}
-        )
+        );
     }
 
     /**
-     * Register all the URL handlers for opening the application as `scarlet://`
-     *
-     * @private
+     * Registers the URL handler for the application
      */
-    private static registerUrlHandler() {
+    private static registerUrlHandler(): void {
         if (process.defaultApp) {
             if (process.argv.length >= 2) {
                 Main.application.setAsDefaultProtocolClient(
-                    Main.protocol(),
+                    Main.protocol,
                     process.execPath,
                     [path.resolve(process.argv[1])]
-                )
+                );
             }
         } else {
-            Main.application.setAsDefaultProtocolClient(Main.protocol())
+            Main.application.setAsDefaultProtocolClient(Main.protocol);
         }
     }
 
     /**
-     * Install Auto Updater
-     *
-     * @private
+     * Registers the auto-updater for the application
      */
-    private static registerAutoUpdater() {
-        autoUpdater.checkForUpdatesAndNotify()
+    private static registerAutoUpdater(): void {
+        autoUpdater.checkForUpdatesAndNotify().catch(console.error);
 
         autoUpdater.on('update-available', () => {
             Main.mainWindow.webContents.send('update_available');
@@ -152,79 +162,76 @@ export default class Main {
     }
 
     /**
-     * Install Inter Process Comms Events
-     *
-     * This will only handle the [Web] -> [Electron] events,
-     * for [Electron] -> [Web] events, checkout `preload.js`
-     *
-     * @private
+     * Registers IPC events for communication between main and renderer processes
      */
-    private static registerIPCEvents() {
+    private static registerIPCEvents(): void {
         ipcMain.on('close', () => Main.mainWindow.close());
         ipcMain.on('minimise', () => Main.mainWindow.minimize());
-
         ipcMain.on('steam_login', () => {
-            shell.openExternal(Main.scarlet_api_url() + 'browser/steam/verify')
+            shell.openExternal(Main.scarlet_api_url + 'browser/steam/verify');
         });
-
         ipcMain.on('open_admin_page_in_browser', () => {
-            shell.openExternal(Main.scarlet_api_url() + 'admin')
+            shell.openExternal(Main.scarlet_api_url + 'admin');
         });
-
         ipcMain.on('quit', () => {
-            Main.mainWindow = null
+            Main.mainWindow = null;
         });
-
         ipcMain.on('open_choose_install_dir', (evt, current_directory: string) => {
             dialog.showOpenDialog(Main.mainWindow, {
                 properties: ['openDirectory'],
-                defaultPath: current_directory,
+                defaultPath: current_directory ?? '',
                 message: 'Select the path to your Arma 3 Folder'
             }).then(result => {
-                console.log(result.canceled)
-                console.log(result.filePaths)
-                if(result.filePaths[0]) {
-                    Main.mainWindow.webContents.send('on_select_install_dir', result.filePaths[0])
+                if (result.filePaths[0]) {
+                    Main.mainWindow.webContents.send('on_select_install_dir', result.filePaths[0]);
                 }
             }).catch(err => {
-                console.log(err)
-            })
+                console.error(err);
+            });
         });
+
+        ipcMain.handle('ping', ping);
+
+        ipcMain.handle('stop_download', stop_download);
+        ipcMain.handle('get_progress', get_progress);
+
+        ipcMain.handle('start_download', async (
+            evt,
+            destination_folder: string,
+            files: Array<FileDownload>
+        ) => {
+            return start_download(
+                destination_folder,
+                files
+            );
+        })
     }
 
     /**
-     * Handle the instance when a second window appears.
-     *
-     * In this case we actually want to login as sometimes the user will open Scarlet
-     * with the `scarlet://` url handler
-     *
-     * @param event
-     * @param commandLine
-     * @param workingDirectory
-     * @private
+     * Handles the second instance of the application
+     * @param event The event object
+     * @param commandLine The command line arguments
+     * @param workingDirectory The working directory
      */
-    private static onSecondInstance(event: Electron.Event | Electron.Session, commandLine: any, workingDirectory: unknown) {
-        // Someone tried to run a second instance, we should focus our window.
+    private static onSecondInstance(event: Electron.Event | Electron.Session, commandLine: string[], workingDirectory: string): void {
         if (Main.mainWindow) {
-            if (Main.mainWindow.isMinimized()) Main.mainWindow.restore()
-            Main.mainWindow.focus()
+            if (Main.mainWindow.isMinimized()) Main.mainWindow.restore();
+            Main.mainWindow.focus();
         }
 
-        const url = commandLine.pop().slice(0, -1)
+        const url = commandLine.pop().slice(0, -1);
 
-        if (url.startsWith(Main.protocol())) {
-            Main.login(url)
+        if (url.startsWith(Main.protocol)) {
+            Main.login(url);
         }
     }
 
     /**
-     * Opens a URL on the Window
-     *
-     * @param event
-     * @param url
-     * @private
+     * Handles opening URLs
+     * @param event The event object
+     * @param url The URL to open
      */
-    private static onOpenUrl(event: Event, url: string) {
-        return Main.login(url)
+    private static onOpenUrl(event: Event, url: string): Promise<void> {
+        return Main.login(url);
     }
 }

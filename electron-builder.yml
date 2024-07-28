@@ -1,21 +1,17 @@
 appId: com.aaf.ScarletUpdater
-publish:
-  provider: github
-  token: [[ GITHUB_TOKEN ]]
 protocols:
   - name: Scarlet URL Handler
     schemes:
       - scarlet
 files:
-  - "**/*"
-extraResources:
-  - from: "./agent/"
-    to: "agent"
-    filter:
-      - "**/*"
+  - "lib/**/*"
 win:
   target: nsis
 nsis:
   include: build/installer.nsh
   oneClick: true
-  perMachine: true
+  perMachine: false
+publish:
+  provider: github
+  owner: sifex
+  repo: scarlet
